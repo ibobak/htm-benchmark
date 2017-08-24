@@ -5,6 +5,7 @@ from nupic.engine import Network
 from nupic.encoders import DateEncoder
 import csv
 
+
 _VERBOSITY = 0
 
 # Default config fields for SPRegion
@@ -18,37 +19,31 @@ _SP_PARAMS = {
     "potentialPct": 0.8,
     "synPermConnected": 0.1,
     "synPermActiveInc": 0.0001,
-    "synPermInactiveDec": 0.0005
+    "synPermInactiveDec": 0.0005,
 
-    # "spVerbosity": _VERBOSITY,
-    # "seed": 1956,
-    # "boostStrength": 0.0,
+    "spVerbosity": _VERBOSITY,
+    "seed": 1956,
+    "boostStrength": 0.0
 }
 
 # Default config fields for TPRegion
 _TM_PARAMS = {
     "temporalImp": "cpp",
     "columnCount": 2048,
-
+    "inputWidth": 2048,
     "cellsPerColumn": 4,
     "newSynapseCount": 20,
     "initialPerm": 0.21,
     "permanenceInc": 0.1,
     "permanenceDec": 0.1,
     "minThreshold": 9,
-    "activationThreshold": 12
+    "activationThreshold": 12,
 
-    # "newSynapseCount": 20,
-    # "maxSynapsesPerSegment": 32,
-    # "maxSegmentsPerCell": 128,
+    "outputType": "normal",
+    "pamLength": 3,
 
-    # "globalDecay": 0.0,
-    # "maxAge": 0,
-    # "outputType": "normal",
-    # "pamLength": 3,
-
-    # "verbosity": _VERBOSITY,
-    # "seed": 1960,
+    "verbosity": _VERBOSITY,
+    "seed": 1960
 }
 
 _INPUT_FILE_PATH = "../data/one_device_2015-2017.csv "
@@ -90,11 +85,19 @@ def create_network():
     network.link("sp", "tm", "UniformLink", "")
     network.link("tm", "sp", "UniformLink", "", srcOutput="topDownOut", destInput="topDownIn")
 
+    network.regions['sp'].setParameter("learningMode", True)
+    network.regions['sp'].setParameter("anomalyMode", False)
+
+
+    # network.regions['tm'].setParameter("topDownMode", True)  # check this
+
+    # Make sure learning is enabled (this is the default)
+    network.regions['tm'].setParameter("learningMode", True)
     # Enable anomalyMode so the tm calculates anomaly scores
     network.regions['tm'].setParameter("anomalyMode", True)
-
     # Enable inference mode to be able to get predictions
     network.regions['tm'].setParameter("inferenceMode", True)
+
 
     # TODO: enable all inferences
     return network
@@ -106,19 +109,26 @@ def run_network(network):
 
     tm_region = network.regions['tm']
 
-    with csv.reader(open(_INPUT_FILE_PATH, 'r')) as csv_reader:
-        for row in csv_reader:
-            m_str = row[13]
-            m_sensor.setParameter('sensedValue', float(m_str))
+    csv_reader = csv.reader(open(_INPUT_FILE_PATH, 'r'))
+    i = 0
+    t0 = datetime.now()
+    for row in csv_reader:
+        i = i + 1
+        m_str = row[13]
+        m_sensor.setParameter('sensedValue', float(m_str))
 
-            dt_str = row[11] + " " + row[12]
-            dt = datetime.strptime(dt_str, "%y-%m-%d %H:%M")
-            dt_sensor.getSelf().setSensedValue(dt)
+        dt_str = row[11] + " " + row[12]
+        dt = datetime.strptime(dt_str, "%Y-%m-%d %H:%M")
+        dt_sensor.getSelf().setSensedValue(dt)
 
-            network.run(1)
+        network.run(1)
 
-            anomaly = tm_region.getOutputData('anomalyScore')[0]
-            print "Measurement: %s, Anomaly score: %f" % (m_str, anomaly)
+        anomaly = tm_region.getOutputData('anomalyScore')[0]
+        if (anomaly > 0.9):
+            print "Date: %s, Measurement: %s, Anomaly score: %f" % (dt_str, m_str, anomaly)
+        if i % 100 == 0:
+            delta = datetime.now() - t0
+            print "Processed %d records. The rate is %s records/second" % (i, i / delta.total_seconds())
 
 
 if __name__ == "__main__":
